@@ -1,5 +1,5 @@
 const staticCacheName = 'site-static-v3';
-const dynamicCache = 'site-dynamic-v1';
+const dynamicCacheName = 'site-dynamic-v1';
 const assets = [
     '/', 
     '/index.html',
@@ -13,6 +13,17 @@ const assets = [
     'https://fonts.gstatic.com/s/materialicons/v52/flUhRq6tzZclQEJ-Vdg-IuiaDsNcIhQ8tQ.woff2',
     '/pages/fallback.html'
 ]
+const CACHE_SIZE_LIMIT = 3;
+
+const limitCacheSize = (name, size) => {
+    caches.open(name).then(cache => {
+        cache.keys().then(keys => {
+            if (keys.length > size) {
+                cache.delete(keys[0]).then(limitCacheSize(name, size))
+            }
+        })
+    });
+}
 
 // install service worker
 self.addEventListener('install', evt => {
@@ -23,38 +34,43 @@ self.addEventListener('install', evt => {
     );
 });
 
-// listen for activate event
+
+/**
+ * - when we activate a new service worker
+ *   erase previously versions of cache(s)
+ */
 self.addEventListener('activate', evt => {
-    //console.log('service worker has been activated');
-    // delete old cache
-    // get keys of all caches
-        // use promise.all to recieve all those keys,
-        // filter out keys array to only store keys of prev version 
-        // map through filtered array and call caches.delete for each key
-    // calling caches.delete returns a promise, so now promise.all will hold an array of promises as it should
-        evt.waitUntil(
+    evt.waitUntil(
         caches.keys().then(keys => {
             return Promise.all(keys
-                .filter(key => key !== staticCacheName )
+                .filter(key => key !== staticCacheName)
                 .map(key => caches.delete(key))
             )
         })
     )
 });
 
-// listen for fetch events
+/**
+ * - intercept fetch requests
+ * - check if we already have resource cached, 
+ *  - if so return it
+ *  - if not, fetch it then cache it for the future 
+ *      - if fetch fails, send user to fallback page if fetch was an html page
+ */
 self.addEventListener('fetch', evt => {
-    // intercept every request, check if we have it in our cache, if so return it, if not fetch it and cache it
     evt.respondWith(
-        caches.match(evt.request).then((cacheRes) => {
+        caches.match(evt.request).then(cacheRes => {
             return cacheRes || fetch(evt.request).then(fetchResp => {
-                return caches.open(dynamicCache).then(cache => {
-                    // use put bc we have already made the request, cache.addAll makes the request for us 
-                    // key -> url; value -> response
+                return caches.open(dynamicCacheName).then(cache => {
                     cache.put(evt.request.url, fetchResp.clone());
+                    limitCacheSize(dynamicCacheName, CACHE_SIZE_LIMIT);
                     return fetchResp;
                 })
             }) 
+        }).catch(() => {
+            if (evt.request.url.indexOf('.html') > -1) {
+                caches.match('/pages/fallback.html')
+            } 
         })
     );
 });
